@@ -1,0 +1,84 @@
+specVersion: 0.0.5
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: Pool
+    network: base
+    source:
+      address: "0x23aB2e6D4Ab0c5f872567098671F1ffb46Fd2500"
+      abi: Pool
+      startBlock: 38000000
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Pool
+        - Position
+      abis:
+        - name: Pool
+          file: ./abis/Pool.json
+      eventHandlers:
+        - event: ModifyLiquidity(indexed address,indexed address,int24,int24,int256,bytes)
+          handler: handleModifyLiquidity
+        - event: Swap(indexed address,indexed address,int256,int256,uint160,int24)
+          handler: handleSwap
+      file: ./src/mapping.ts
+  - kind: ethereum
+    name: Subscriber
+    network: base
+    source:
+      address: "0x735ee950D979C70C14FAa739f80fC96d9893f7ED"
+      abi: Subscriber
+      startBlock: 38000000
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - WalletPoolSubscription
+      abis:
+        - name: Subscriber
+          file: ./abis/Subscriber.json
+      eventHandlers:
+        - event: Subscribe(indexed address,indexed address,uint256)
+          handler: handleSubscribe
+        - event: Unsubscribe(indexed address,indexed address)
+          handler: handleUnsubscribe
+        - event: UpdateSubscription(indexed address,indexed address,uint256)
+          handler: handleUpdateSubscription
+      file: ./src/subscriberMapping.ts
+  - kind: ethereum
+    name: PositionRegistry
+    network: base
+    source:
+      address: "0x3994e3ae3Cf62bD2a3a83dcE73636E954852BB04"
+      abi: PositionRegistry
+      startBlock: 38000000
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - PositionNFT
+        - FeeGrowthCheckpoint
+        - WalletSubscription
+        - RewardDistribution
+        - LiquidityModification
+      abis:
+        - name: PositionRegistry
+          file: ./abis/PositionRegistry.json
+      eventHandlers:
+        - event: Checkpoint(indexed uint256,indexed bytes32,indexed uint256,int128,int128)
+          handler: handleCheckpoint
+        - event: PositionUpdated(indexed uint256,indexed address,indexed bytes32,int24,int24,uint128)
+          handler: handlePositionUpdated
+        - event: Subscribed(indexed uint256,indexed address)
+          handler: handleRegistrySubscribe
+        - event: Unsubscribed(indexed uint256,indexed address)
+          handler: handleRegistryUnsubscribe
+        - event: RewardsClaimed(indexed address,uint256)
+          handler: handleRewardsClaimed
+      file: ./src/registryMapping.ts
+

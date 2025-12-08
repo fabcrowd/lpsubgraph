@@ -1,0 +1,70 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "internalType": "address",
+        "name": "pool",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "internalType": "uint256",
+        "name": "liquidityBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "Subscribe",
+    "type": "event",
+    "anonymous": false
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "internalType": "address",
+        "name": "pool",
+        "type": "address",
+        "indexed": true
+      }
+    ],
+    "name": "Unsubscribe",
+    "type": "event",
+    "anonymous": false
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "internalType": "address",
+        "name": "pool",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "internalType": "uint256",
+        "name": "liquidityBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "UpdateSubscription",
+    "type": "event",
+    "anonymous": false
+  }
+]
+

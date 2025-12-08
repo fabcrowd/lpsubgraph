@@ -1,0 +1,135 @@
+type Pool @entity {
+  id: ID!
+  token0: Bytes!
+  token1: Bytes!
+  fee: Int!
+  currentTick: BigInt!
+  positions: [PositionNFT!]! @derivedFrom(field: "pool")
+}
+
+# Track positions by NFT ID (from PositionManager)
+type PositionNFT @entity {
+  id: ID! # NFT token ID (uint256)
+  pool: Pool!
+  owner: Bytes! # Current owner of the NFT (lastOwner from Excel)
+  tickLower: BigInt!
+  tickUpper: BigInt!
+  liquidity: BigInt! # lastLiquidity from Excel
+  createdAtBlock: BigInt!
+  createdAtTimestamp: BigInt!
+  updatedAtBlock: BigInt!
+  updatedAtTimestamp: BigInt!
+  
+  # Fee growth tracking
+  checkpoints: [FeeGrowthCheckpoint!]! @derivedFrom(field: "position")
+  latestCheckpoint: FeeGrowthCheckpoint
+  
+  # Fee growth during period (from Excel: feeGrowthInsidePeriod0/1)
+  feeGrowthInsidePeriod0: BigInt!
+  feeGrowthInsidePeriod1: BigInt!
+  feeGrowthInsidePeriod0Formatted: BigDecimal
+  feeGrowthInsidePeriod1Formatted: BigDecimal
+  
+  # Subscription tracking
+  subscriptions: [WalletSubscription!]! @derivedFrom(field: "position")
+  isSubscribed: Boolean!
+  
+  # Performance metrics
+  totalFeeGrowth0: BigInt!
+  totalFeeGrowth1: BigInt!
+  lifetimeBlocks: BigInt!
+  classification: String! # "JIT", "Active", or "Passive"
+  
+  # Liquidity modifications tracking (for Active/Passive classification)
+  modifications: [LiquidityModification!]! @derivedFrom(field: "position")
+  modificationCount: Int!
+  
+  # Rewards
+  totalRewardsEarned: BigInt!
+  positionRewards: [PositionReward!]! @derivedFrom(field: "position")
+}
+
+# Fee growth checkpoints (from PositionRegistry Checkpoint events)
+type FeeGrowthCheckpoint @entity {
+  id: ID! # positionId-blockNumber
+  position: PositionNFT!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  feeGrowthInside0LastX128: BigInt!
+  feeGrowthInside1LastX128: BigInt!
+  liquidity: BigInt!
+}
+
+# Wallet subscriptions to position NFTs
+type WalletSubscription @entity {
+  id: ID! # wallet-positionId
+  wallet: Bytes!
+  position: PositionNFT!
+  subscribedAtBlock: BigInt!
+  subscribedAtTimestamp: BigInt!
+  unsubscribedAtBlock: BigInt
+  unsubscribedAtTimestamp: BigInt
+  isActive: Boolean!
+}
+
+# Liquidity modifications (for tracking Active/Passive classification)
+type LiquidityModification @entity {
+  id: ID! # positionId-blockNumber
+  position: PositionNFT!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  newLiquidityAmount: BigInt!
+  owner: Bytes!
+}
+
+# Reward distributions per epoch (matches Excel LP Rewards sheet)
+type RewardDistribution @entity {
+  id: ID! # epoch-wallet
+  epoch: BigInt!
+  wallet: Bytes!
+  periodFeesCurrency0: BigInt!
+  periodFeesCurrency0Formatted: BigDecimal
+  periodFeesCurrency1: BigInt!
+  periodFeesCurrency1Formatted: BigDecimal
+  reward: BigInt!
+  rewardFormatted: BigDecimal
+  totalFeesCommonDenominator: BigInt!
+  distributedAtBlock: BigInt!
+  distributedAtTimestamp: BigInt!
+  
+  # Position-level breakdown (if needed)
+  positionRewards: [PositionReward!]! @derivedFrom(field: "distribution")
+}
+
+# Position-level rewards within an epoch
+type PositionReward @entity {
+  id: ID! # epoch-wallet-positionId
+  distribution: RewardDistribution!
+  position: PositionNFT!
+  feeGrowthDuringEpoch: BigInt!
+  weightedScore: BigDecimal!
+  classification: String!
+}
+
+# Legacy position tracking (from pool events)
+type Position @entity {
+  id: ID!
+  pool: Pool!
+  owner: Bytes!
+  tickLower: BigInt!
+  tickUpper: BigInt!
+  liquidity: BigInt!
+  createdAtBlock: BigInt!
+  updatedAtBlock: BigInt!
+}
+
+# Legacy subscription tracking
+type WalletPoolSubscription @entity {
+  id: ID!
+  wallet: Bytes!
+  pool: Pool!
+  subscribed: Boolean!
+  liquidityBps: BigInt!
+  createdAtBlock: BigInt!
+  updatedAtBlock: BigInt!
+}
