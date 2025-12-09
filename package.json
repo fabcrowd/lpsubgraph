@@ -18,7 +18,12 @@
     "report:text": "tsx tools/report.ts text",
     "report:json": "tsx tools/report.ts json",
     "verify:abi": "tsx tools/compareABI.ts",
-    "verify:excel": "tsx tools/verifyAgainstExcel.ts"
+    "verify:excel": "tsx tools/verifyAgainstExcel.ts",
+    "compare:epoch16": "tsx tools/compareEpoch16Rewards.ts",
+    "compare:website": "tsx tools/compareWithWebsite.ts",
+    "verify:liquidity": "tsx tools/verifyLiquidityTotals.ts",
+    "test:subgraph": "tsx tools/testSubgraphUrl.ts",
+    "pool:liquidity": "tsx tools/getPoolLiquidityDirect.ts"
   },
   "dependencies": {
     "@graphprotocol/graph-ts": "^0.31.0",

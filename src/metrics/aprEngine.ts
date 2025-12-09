@@ -9,14 +9,42 @@ const BLOCKS_PER_YEAR = 2628000; // ~12 seconds per block on Base, 365 days
 const SECONDS_PER_YEAR = 31536000;
 
 /**
+ * Convert fee growth from Q128.128 format to actual token amounts
+ * 
+ * Fee growth in Uniswap v4 is stored as Q128.128 (scaled by 2^128).
+ * To get actual fees: (feeGrowth * liquidity) / 2^128
+ */
+function convertFeeGrowthToAmount(feeGrowth: string, liquidity: string): number {
+  const Q128 = Math.pow(2, 128);
+  const feeGrowthNum = parseFloat(feeGrowth || "0");
+  const liquidityNum = parseFloat(liquidity || "0");
+  
+  if (feeGrowthNum === 0 || liquidityNum === 0) {
+    return 0;
+  }
+  
+  // Actual fees = (feeGrowth * liquidity) / 2^128
+  // Note: This gives fees in token units, not USD
+  return (feeGrowthNum * liquidityNum) / Q128;
+}
+
+/**
  * Calculate fee APR for a position based on fee growth and lifetime
  * 
- * APR = (Fee Growth / Lifetime Blocks) * (Blocks Per Year / Position Liquidity) * 100
+ * IMPORTANT: Fee growth is in Q128.128 format and must be converted to actual amounts first.
  * 
- * This is a simplified estimate. Real APR would need:
- * - Token prices
+ * APR calculation:
+ * 1. Convert fee growth to actual token amounts
+ * 2. Calculate fees per block
+ * 3. Project to annual fees
+ * 4. Calculate APR as percentage
+ * 
+ * NOTE: This is a simplified estimate. Real APR would need:
+ * - Token prices to convert to USD
  * - Position value in USD
  * - More sophisticated fee growth calculations
+ * 
+ * Uses period-specific fee growth if available, otherwise falls back to total fee growth.
  */
 export function calculateFeeAPR(position: PositionSummary): number {
   if (!position.lifetimeBlocks || parseFloat(position.lifetimeBlocks) === 0) {
@@ -30,25 +58,44 @@ export function calculateFeeAPR(position: PositionSummary): number {
     return 0;
   }
 
-  // Calculate fee growth per block
-  const feeGrowth0 = parseFloat(position.totalFeeGrowth0 || "0");
-  const feeGrowth1 = parseFloat(position.totalFeeGrowth1 || "0");
+  // Prefer period-specific fee growth if available (more accurate for recent performance)
+  // Otherwise use total fee growth (cumulative since position creation)
+  const feeGrowth0 = position.feeGrowthInsidePeriod0 || position.totalFeeGrowth0 || "0";
+  const feeGrowth1 = position.feeGrowthInsidePeriod1 || position.totalFeeGrowth1 || "0";
   
-  // For now, we'll use a simplified calculation
-  // In reality, you'd need token prices to convert to USD and calculate proper APR
-  // This is a placeholder that estimates APR based on fee growth rate
+  // Convert fee growth from Q128.128 format to actual token amounts
+  const fee0Amount = convertFeeGrowthToAmount(feeGrowth0, position.liquidity || "0");
+  const fee1Amount = convertFeeGrowthToAmount(feeGrowth1, position.liquidity || "0");
   
-  // Estimate: fee growth per block * blocks per year / liquidity
-  // This is a rough approximation - actual calculation would need token prices
-  const feeGrowthPerBlock = (feeGrowth0 + feeGrowth1) / lifetimeBlocks;
-  const annualFeeGrowth = feeGrowthPerBlock * BLOCKS_PER_YEAR;
+  // Calculate total fees earned
+  const totalFees = fee0Amount + fee1Amount;
   
-  // Convert to percentage (this is simplified - real calculation needs position value)
-  // For now, return a placeholder that scales with fee growth
-  const aprEstimate = (annualFeeGrowth / liquidity) * 100;
+  // If fees are extremely small, return 0 (likely position is new or inactive)
+  if (totalFees < 1e-15) {
+    return 0;
+  }
   
-  // Cap at reasonable values (this is a placeholder calculation)
-  return Math.min(Math.max(aprEstimate, 0), 1000); // Cap at 1000% APR
+  // Calculate fees per block
+  const feesPerBlock = totalFees / lifetimeBlocks;
+  
+  // Project to annual fees
+  const annualFees = feesPerBlock * BLOCKS_PER_YEAR;
+  
+  // For APR calculation, we need to estimate position value
+  // Since we don't have token prices, we'll use a simplified approach:
+  // Assume liquidity roughly represents position value (this is approximate)
+  // In Uniswap v4, liquidity = sqrt(price) * amount, so this is not exact
+  // But for a rough estimate, we can use it
+  
+  // Calculate APR as percentage
+  // Note: This is a simplified estimate - real APR needs token prices for accurate calculation
+  const aprEstimate = liquidity > 0 ? (annualFees / liquidity) * 100 : 0;
+  
+  // Cap at reasonable values and ensure minimum precision
+  const cappedAPR = Math.min(Math.max(aprEstimate, 0), 1000);
+  
+  // Round to 2 decimal places, but if very small (< 0.01%), return 0
+  return cappedAPR < 0.01 ? 0 : Math.round(cappedAPR * 100) / 100;
 }
 
 /**

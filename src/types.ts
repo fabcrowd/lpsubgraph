@@ -66,7 +66,8 @@ export interface WalletSummary {
 
 export interface PoolSummary {
   totalPositions: number;
-  totalLiquidity: number;
+  totalLiquidity: number; // Total pool liquidity (all positions)
+  subscribedLiquidity?: number; // Subscribed positions only
   totalRewards: number;
   totalFeeGrowth0: number;
   totalFeeGrowth1: number;

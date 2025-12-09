@@ -14,6 +14,23 @@ function formatBigInt(value: string | number): string {
   return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+/**
+ * Convert fee growth from Q128.128 format to actual token amounts for display
+ * Fee growth is scaled by 2^128, so actual fees = (feeGrowth * liquidity) / 2^128
+ */
+function convertFeeGrowthForDisplay(feeGrowth: string, liquidity: string): number {
+  const Q128 = Math.pow(2, 128);
+  const feeGrowthNum = parseFloat(feeGrowth || "0");
+  const liquidityNum = parseFloat(liquidity || "0");
+  
+  if (feeGrowthNum === 0 || liquidityNum === 0) {
+    return 0;
+  }
+  
+  // Actual fees = (feeGrowth * liquidity) / 2^128
+  return (feeGrowthNum * liquidityNum) / Q128;
+}
+
 function formatPercentage(value: number): string {
   if (isNaN(value) || !isFinite(value)) return "0.00%";
   return `${value.toFixed(2)}%`;
@@ -49,10 +66,28 @@ export function generateTextReport(poolSummary: PoolSummary): void {
   console.log("=".repeat(100));
   console.log("ALL POSITIONS - DETAILED REPORT");
   console.log("=".repeat(100));
-  console.log(`Total Pool Liquidity: ${formatBigInt(poolSummary.totalLiquidity)}`);
+  console.log(`Total Pool Liquidity (All Positions): ${formatBigInt(poolSummary.totalLiquidity)}`);
+  if (poolSummary.subscribedLiquidity !== undefined) {
+    const subscribedPercent = poolSummary.totalLiquidity > 0 
+      ? (poolSummary.subscribedLiquidity / poolSummary.totalLiquidity * 100).toFixed(2)
+      : "0.00";
+    console.log(`Subscribed Liquidity: ${formatBigInt(poolSummary.subscribedLiquidity)} (${subscribedPercent}% of total)`);
+  }
   console.log(`Total Rewards Distributed: ${formatBigInt(poolSummary.totalRewards)} TEL`);
-  console.log(`Total Fee Growth 0: ${formatBigInt(poolSummary.totalFeeGrowth0)}`);
-  console.log(`Total Fee Growth 1: ${formatBigInt(poolSummary.totalFeeGrowth1)}\n`);
+  
+  // Convert total fee growth for display (approximate - using average liquidity)
+  const avgLiquidity = poolSummary.totalPositions > 0 ? poolSummary.totalLiquidity / poolSummary.totalPositions : 0;
+  const totalFee0Converted = poolSummary.totalPositions > 0 
+    ? convertFeeGrowthForDisplay(poolSummary.totalFeeGrowth0.toString(), avgLiquidity.toString()) * poolSummary.totalPositions
+    : 0;
+  const totalFee1Converted = poolSummary.totalPositions > 0
+    ? convertFeeGrowthForDisplay(poolSummary.totalFeeGrowth1.toString(), avgLiquidity.toString()) * poolSummary.totalPositions
+    : 0;
+  
+  console.log(`Total Fees 0 (converted): ${formatBigInt(totalFee0Converted)}`);
+  console.log(`Total Fees 1 (converted): ${formatBigInt(totalFee1Converted)}`);
+  console.log(`Note: Fee values shown are converted from Q128.128 format`);
+  console.log(`Note: APR calculations are approximate without token prices for accurate USD conversion\n`);
 
   // Table header
   console.log(
@@ -86,8 +121,8 @@ export function generateTextReport(poolSummary: PoolSummary): void {
       pos.classification.padEnd(13) +
       (pos.eligibility.eligible ? "✅ YES" : "❌ NO").padEnd(8) +
       (pos.isSubscribed ? "✅ YES" : "❌ NO").padEnd(10) +
-      formatBigInt(pos.totalFeeGrowth0).padEnd(13) +
-      formatBigInt(pos.totalFeeGrowth1).padEnd(13) +
+      formatBigInt(convertFeeGrowthForDisplay(pos.totalFeeGrowth0, pos.liquidity)).padEnd(13) +
+      formatBigInt(convertFeeGrowthForDisplay(pos.totalFeeGrowth1, pos.liquidity)).padEnd(13) +
       formatBigInt(pos.totalRewardsEarned).padEnd(13) +
       formatPercentage(pos.rewardPercent).padEnd(10) +
       formatPercentage(pos.feeAPR || 0).padEnd(8) +
@@ -153,8 +188,19 @@ export function generateTextReport(poolSummary: PoolSummary): void {
     console.log(`Active Positions: ${yourStats.activeCount} (0% eligible)`);
     console.log(`JIT Positions: ${yourStats.jitCount} (0% eligible)`);
     console.log(`Subscribed Positions: ${yourStats.subscribedCount}/${yourStats.positionCount}`);
-    console.log(`Total Fee Growth 0: ${formatBigInt(yourStats.totalFeeGrowth0)}`);
-    console.log(`Total Fee Growth 1: ${formatBigInt(yourStats.totalFeeGrowth1)}`);
+    
+    // Convert total fee growth for display (approximate using average liquidity)
+    const yourAvgLiquidity = yourStats.positionCount > 0 ? yourStats.totalLiquidity / yourStats.positionCount : 0;
+    const yourFee0Converted = yourStats.positionCount > 0
+      ? convertFeeGrowthForDisplay(yourStats.totalFeeGrowth0.toString(), yourAvgLiquidity.toString()) * yourStats.positionCount
+      : 0;
+    const yourFee1Converted = yourStats.positionCount > 0
+      ? convertFeeGrowthForDisplay(yourStats.totalFeeGrowth1.toString(), yourAvgLiquidity.toString()) * yourStats.positionCount
+      : 0;
+    
+    console.log(`Total Fees 0 (converted): ${formatBigInt(yourFee0Converted)}`);
+    console.log(`Total Fees 1 (converted): ${formatBigInt(yourFee1Converted)}`);
+    console.log(`Note: Fee values are converted from Q128.128 format`);
     if (yourStats.averageFeeAPR !== undefined) {
       console.log(`Average Fee APR: ${formatPercentage(yourStats.averageFeeAPR)}`);
     }

@@ -7,10 +7,39 @@ import { PoolSummary, PositionSummary, WalletSummary } from "../types";
 
 const SUBGRAPH_URL = process.env.SUBGRAPH_URL || "http://localhost:8000/subgraphs/name/telx-v4-pool";
 const YOUR_WALLET = "0x0380ad3322Df94334C2f30CEE24D3086FC6F3445";
+const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
+
+/**
+ * Fetch current block number from RPC
+ */
+async function fetchCurrentBlockNumber(): Promise<number | null> {
+  try {
+    const response = await fetch(RPC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "eth_blockNumber",
+        params: [],
+        id: 1
+      }),
+    });
+    const result = await response.json();
+    if (result.error) {
+      console.warn("Error fetching current block:", result.error.message);
+      return null;
+    }
+    return parseInt(result.result, 16);
+  } catch (error) {
+    console.warn("Error fetching current block number:", error);
+    return null;
+  }
+}
 
 // Comprehensive query for live report
+// We query subscribed positions for the list, but also need total pool liquidity
 const LIVE_REPORT_QUERY = `
-  query LiveReport {
+  query LiveReport($poolId: String!) {
     positionNFTs(
       orderBy: liquidity
       orderDirection: desc
@@ -34,11 +63,18 @@ const LIVE_REPORT_QUERY = `
       updatedAtTimestamp
       subscriptions(where: { isActive: true }) {
         wallet
+        subscribedAtBlock
         subscribedAtTimestamp
         isActive
       }
     }
-    
+    allPositions: positionNFTs(
+      where: { pool: $poolId }
+      first: 1000
+    ) {
+      id
+      liquidity
+    }
     rewardDistributions(
       orderBy: reward
       orderDirection: desc
@@ -73,24 +109,63 @@ async function querySubgraph(query: string, variables?: any) {
   }
 }
 
-function calculateRewardEligibility(classification: string): { eligible: boolean; weight: number; reason: string } {
-  switch (classification) {
-    case "Passive":
-      return { eligible: true, weight: 100, reason: "Passive (100% weight)" };
-    case "Active":
-      return { eligible: false, weight: 0, reason: "Active (0% weight - modified too frequently)" };
-    case "JIT":
-      return { eligible: false, weight: 0, reason: "JIT (0% weight - same block modifications)" };
-    default:
-      return { eligible: false, weight: 0, reason: "Unknown classification" };
+/**
+ * Calculate reward eligibility based on:
+ * 1. Classification (Passive/Active/JIT)
+ * 2. Subscription start time (must be at least 24 hours ago)
+ * 
+ * A position is only eligible if:
+ * - Classification is "Passive" (100% weight)
+ * - At least 24 hours (43200 blocks) have passed since subscription started
+ */
+function calculateRewardEligibility(
+  classification: string,
+  subscribedAtBlock?: string,
+  currentBlockNumber?: string
+): { eligible: boolean; weight: number; reason: string } {
+  // First check classification
+  if (classification !== "Passive") {
+    switch (classification) {
+      case "Active":
+        return { eligible: false, weight: 0, reason: "Active (0% weight - modified too frequently)" };
+      case "JIT":
+        return { eligible: false, weight: 0, reason: "JIT (0% weight - same block modifications)" };
+      default:
+        return { eligible: false, weight: 0, reason: "Unknown classification" };
+    }
   }
+
+  // If Passive, check subscription age (24 hour requirement = 43200 blocks)
+  if (subscribedAtBlock && currentBlockNumber) {
+    const subscribedAt = parseFloat(subscribedAtBlock);
+    const currentBlock = parseFloat(currentBlockNumber);
+    const blocksSinceSubscription = currentBlock - subscribedAt;
+    const MIN_SUBSCRIPTION_AGE_BLOCKS = 43200; // 24 hours on Base
+
+    if (blocksSinceSubscription < MIN_SUBSCRIPTION_AGE_BLOCKS) {
+      const blocksRemaining = MIN_SUBSCRIPTION_AGE_BLOCKS - blocksSinceSubscription;
+      const hoursRemaining = (blocksRemaining * 12) / 3600; // ~12 seconds per block
+      return {
+        eligible: false,
+        weight: 0,
+        reason: `Passive but subscription too new (${hoursRemaining.toFixed(1)}h remaining for 24h requirement)`
+      };
+    }
+  }
+
+  // Passive and subscription is old enough (or no block check available)
+  return { eligible: true, weight: 100, reason: "Passive (100% weight)" };
 }
 
 /**
  * Fetches live data from subgraph and returns structured PoolSummary
  */
 export async function fetchPoolData(): Promise<PoolSummary | null> {
-  const data = await querySubgraph(LIVE_REPORT_QUERY);
+  // Need poolId for the query - get it from config
+  const { TELX_BASE_CONFIG } = await import("../../config/telxBasePool");
+  const poolId = TELX_BASE_CONFIG.poolId.toLowerCase();
+  
+  const data = await querySubgraph(LIVE_REPORT_QUERY, { poolId });
 
   if (!data || !data.positionNFTs) {
     return null;
@@ -98,22 +173,44 @@ export async function fetchPoolData(): Promise<PoolSummary | null> {
 
   const rawPositions = data.positionNFTs || [];
   const rewards = data.rewardDistributions || [];
+  const allPositions = data.allPositions || [];
 
   if (rawPositions.length === 0) {
     return null;
   }
 
-  // Calculate totals for percentages
-  const totalLiquidity = rawPositions.reduce((sum: number, p: any) => sum + parseFloat(p.liquidity || "0"), 0);
+  // Calculate TOTAL pool liquidity from ALL positions (subscribed + unsubscribed)
+  // This gives accurate percentages relative to the entire pool
+  const totalPoolLiquidity = allPositions.reduce((sum: number, p: any) => sum + parseFloat(p.liquidity || "0"), 0);
+  
+  // Calculate subscribed liquidity (for display purposes)
+  const subscribedLiquidity = rawPositions.reduce((sum: number, p: any) => sum + parseFloat(p.liquidity || "0"), 0);
+  
+  // Use total pool liquidity for percentage calculations
+  const totalLiquidity = totalPoolLiquidity > 0 ? totalPoolLiquidity : subscribedLiquidity;
   const totalRewards = rewards.reduce((sum: number, r: any) => sum + parseFloat(r.reward || "0"), 0);
   const totalFeeGrowth0 = rawPositions.reduce((sum: number, p: any) => sum + parseFloat(p.totalFeeGrowth0 || "0"), 0);
   const totalFeeGrowth1 = rawPositions.reduce((sum: number, p: any) => sum + parseFloat(p.totalFeeGrowth1 || "0"), 0);
+
+  // Get current block number for subscription age check
+  const currentBlockNumber = await fetchCurrentBlockNumber();
+  const currentBlockStr = currentBlockNumber ? currentBlockNumber.toString() : undefined;
 
   // Transform positions
   const positions: PositionSummary[] = rawPositions.map((pos: any) => {
     const liqPercent = totalLiquidity > 0 ? (parseFloat(pos.liquidity || "0") / totalLiquidity) * 100 : 0;
     const rewardPercent = totalRewards > 0 ? (parseFloat(pos.totalRewardsEarned || "0") / totalRewards) * 100 : 0;
-    const eligibility = calculateRewardEligibility(pos.classification);
+    
+    // Get subscription start block (from first active subscription)
+    const subscribedAtBlock = pos.subscriptions && pos.subscriptions.length > 0
+      ? pos.subscriptions[0].subscribedAtBlock
+      : undefined;
+    
+    const eligibility = calculateRewardEligibility(
+      pos.classification,
+      subscribedAtBlock,
+      currentBlockStr
+    );
 
     return {
       id: pos.id,
@@ -124,6 +221,7 @@ export async function fetchPoolData(): Promise<PoolSummary | null> {
       classification: pos.classification || "Passive",
       isSubscribed: pos.isSubscribed || false,
       lifetimeBlocks: pos.lifetimeBlocks || "0",
+      // Keep raw Q128.128 values for calculations (needed for proper epoch scoring)
       totalFeeGrowth0: pos.totalFeeGrowth0 || "0",
       totalFeeGrowth1: pos.totalFeeGrowth1 || "0",
       feeGrowthInsidePeriod0: pos.feeGrowthInsidePeriod0 || "0",
@@ -188,7 +286,8 @@ export async function fetchPoolData(): Promise<PoolSummary | null> {
 
   return {
     totalPositions: positions.length,
-    totalLiquidity,
+    totalLiquidity, // Total pool liquidity (all positions)
+    subscribedLiquidity, // Subscribed positions only
     totalRewards,
     totalFeeGrowth0,
     totalFeeGrowth1,
